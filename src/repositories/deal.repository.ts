@@ -470,7 +470,9 @@ async syncDealsForBrand(brandId: string, deals: DealDocument[]) {
     }
 
     const deals = await DealModel.find({ dealId: { $in: uniqueDealIds } });
-    const dealsById = new Map(deals.map((deal) => [deal.dealId, deal]));
+    const dealsById = new Map<string, DealDocument>(
+      deals.map((deal: DealDocument) => [deal.dealId, deal] as [string, DealDocument])
+    );
     const orderedDeals: DealDocument[] = [];
 
     for (const dealId of uniqueDealIds) {
@@ -530,7 +532,9 @@ async syncDealsForBrand(brandId: string, deals: DealDocument[]) {
         };
       }
 
-      mongoFilter.brandId = { $in: matchingBrands.map((brand) => brand._id) };
+      mongoFilter.brandId = {
+        $in: matchingBrands.map((brand: { _id: mongoose.Types.ObjectId }) => brand._id),
+      };
     }
 
     if (typeof filters.isActive === "boolean") {
@@ -675,7 +679,7 @@ async syncDealsForBrand(brandId: string, deals: DealDocument[]) {
       .sort({ name: 1 })
       .lean();
 
-    return brands.map((brand) => ({
+    return brands.map((brand: { name: string; slug: string }) => ({
       name: brand.name,
       slug: brand.slug,
     }));

@@ -17,6 +17,7 @@ import { v4 as uuidv4 } from "uuid";
 
 // our schema for the brand data that we will be storing in our database
 export interface BrandDocument extends Document<Types.ObjectId> {
+  _id: Types.ObjectId;
   brandId: string; // UUID string
   imgUrl?: string;
   name: string;
