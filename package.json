@@ -1,0 +1,25 @@
+{
+  "name": "caching-service",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsc -p tsconfig.json",
+    "run-once": "tsx src/run-once.ts"
+  },
+  "dependencies": {
+    "amqplib": "^1.0.3",
+    "dotenv": "^17.3.1",
+    "groq-sdk": "^1.1.2",
+    "node-cron": "^4.2.1",
+    "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "@types/amqplib": "^0.10.8",
+    "@types/node": "^25.3.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

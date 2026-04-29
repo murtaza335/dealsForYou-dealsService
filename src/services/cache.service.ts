@@ -1,0 +1,1 @@
+// we are using lazy loading for the cache. it will store the api responses whenever first time called and then for the next time it will return the cached response instead of making an api call again.
