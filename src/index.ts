@@ -19,7 +19,6 @@ app.get("/", (req: Request, res: Response) => {
 });
 
 app.listen(PORT, async () => {
-    console.log(`Server running on http://localhost:${PORT}`);
 
     // conenct db first 
     await connectDB();
