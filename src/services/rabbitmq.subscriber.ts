@@ -55,8 +55,13 @@ class RabbitMQSubscriber {
             // here we will be sending the data to the database and then we will be acknowledging the message
             // first extracting and saving the brand
             const brand = await this.dealRepo.updateOrInsertBrand(brandInfo);
+            // adding brandLogoUrl to the brandInfo object for syncing the deals
+            const enrichedBrandInfo = {
+                ...content.brandInfo,
+                logoUrl: brand.imgUrl ?? "",
+            };
             // then syncing the deals for that brand
-            await this.dealRepo.syncDealsForBrand(brand._id.toString(), content.deals);
+            await this.dealRepo.syncDealsForBrand(brand._id.toString(), content.deals, enrichedBrandInfo);
 
 
             // 3. Acknowledge: Tell RabbitMQ the message is processed and can be deleted

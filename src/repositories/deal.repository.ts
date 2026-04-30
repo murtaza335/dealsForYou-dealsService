@@ -140,7 +140,7 @@ export class DealRepository {
   // 6. markHotDeals() - this will be a function that will be called by a background job to mark the hot deals based on the views count and the discount percent or any other criteria we want to use to determine if a deal is hot or not.
 
   async updateOrInsertBrand(
-    brandInfo: { name: string; slug: string; baseUrl: string }
+    brandInfo: { name: string; slug: string; baseUrl: string , brandLogoUrl?: string }
   ): Promise<BrandDocument> {
 
     const brand = await BrandModel.findOneAndUpdate(
@@ -168,7 +168,7 @@ export class DealRepository {
     return brand;
   }
 
-async syncDealsForBrand(brandId: string, deals: DealDocument[]) {
+async syncDealsForBrand(brandId: string, deals: DealDocument[], brandInfo: { brand: string; slug: string; url: string }): Promise<void> {
   console.log(
     `[DealSync] Started | brandId=${brandId} | incomingDeals=${deals?.length ?? 0}`
   );
@@ -242,7 +242,7 @@ async syncDealsForBrand(brandId: string, deals: DealDocument[]) {
           $set: {
             brandId: brandObjectId,
             externalId,
-            brandSlug: raw.brandSlug ?? "unknown-brand",
+            brandSlug: raw.brandSlug ??  "unknown-brand",
             title: raw.title,
             description: raw.description ?? "",
             price: raw.price,
@@ -260,6 +260,7 @@ async syncDealsForBrand(brandId: string, deals: DealDocument[]) {
             isActive,
             imgUrl: raw.imgUrl ?? "",
             scrapedAt: now,
+            baseUrl: brandInfo.url ?? "",
           },
         },
         upsert: true,

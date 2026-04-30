@@ -30,6 +30,8 @@ export interface DealDocument extends Document {
   metadata?: Record<string, unknown>;
   metadataEnrichedAt?: Date;
   metadataSource?: string;
+  baseUrl: string;
+  brandLogoUrl: string;
 }
 
 const dealSchema = new Schema<DealDocument>(
@@ -71,6 +73,8 @@ const dealSchema = new Schema<DealDocument>(
     metadata: { type: Schema.Types.Mixed },
     metadataEnrichedAt: { type: Date },
     metadataSource: { type: String },
+    baseUrl: { type: String, required: true },
+    brandLogoUrl: { type: String, default: "" },
   },
   { timestamps: true }
 );
