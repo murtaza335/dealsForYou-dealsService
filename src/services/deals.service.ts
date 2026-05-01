@@ -1,9 +1,12 @@
 import { DealDocument } from "../models/deal.model.js";
+import { BrandDocument } from "../models/brands.model.js";
 import {
+  BrandDealUpsertInput,
   DealFilterOptions,
   DealFilters,
   DealRepository,
   DealsListResult,
+  UpdateBrandInput,
 } from "../repositories/deal.repository.js";
 
 class DealsService {
@@ -17,11 +20,12 @@ class DealsService {
     return this.dealRepository.getDealById(dealId);
   }
 
-  async getDealsByIds(dealIds: string[]): Promise<DealDocument[]> {
-    return this.dealRepository.getDealsByIds(dealIds);
+  async getDealsByIds(deals: Array<{ dealId: string; brandSlug: string }>): Promise<DealDocument[]> {
+    return this.dealRepository.getDealsByIds(deals);
   }
 
   async getFilterOptions(): Promise<DealFilterOptions> {
+    console.log("in service")
     return this.dealRepository.getFilterOptions();
   }
 
@@ -39,6 +43,27 @@ class DealsService {
 
   async getFilterPriceRange(): Promise<{ min: number; max: number }> {
     return this.dealRepository.getFilterPriceRange();
+  }
+
+  async updateBrand(
+    brandIdentifier: string,
+    updates: UpdateBrandInput
+  ): Promise<BrandDocument | null> {
+    return this.dealRepository.updateBrand(brandIdentifier, updates);
+  }
+
+  async upsertDealForBrand(
+    brandIdentifier: string,
+    dealInput: BrandDealUpsertInput
+  ): Promise<DealDocument | null> {
+    return this.dealRepository.upsertDealForBrand(brandIdentifier, dealInput);
+  }
+
+  async deleteDealForBrand(
+    brandIdentifier: string,
+    dealIdentifier: string
+  ): Promise<DealDocument | null> {
+    return this.dealRepository.deleteDealForBrand(brandIdentifier, dealIdentifier);
   }
 }
 

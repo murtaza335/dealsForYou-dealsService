@@ -199,28 +199,48 @@ export const getDealById = async (req: Request, res: Response, next: NextFunctio
 };
 
 export const getDealsByIds = async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const dealIds = parseStringListQuery(req.query.ids);
 
-    if (!dealIds.length) {
+  try {
+    const dealsParam = req.query.deals;
+    let deals: Array<{ dealId: string; brandSlug: string }> = [];
+
+    if (typeof dealsParam === "string") {
+      try {
+        const parsed = JSON.parse(dealsParam);
+        deals = Array.isArray(parsed) ? parsed : [];
+      } catch (error) {
+        console.error("[Deals] Failed to parse deals parameter:", error);
+        return res.status(400).json({
+          success: false,
+          message: "Invalid deals parameter format. Expected JSON array of objects with dealId and brandSlug.",
+        });
+      }
+    }
+
+    if (!deals.length) {
       return res.status(400).json({
         success: false,
-        message: "ids query parameter is required.",
+        message: "deals query parameter is required.",
       });
     }
 
-    const deals = await dealsService.getDealsByIds(dealIds);
+    console.log("[Deals] Fetching deals with criteria:", deals);
+
+    const fetchedDeals = await dealsService.getDealsByIds(deals);
+
+    console.log("[Deals] Returned deals count:", fetchedDeals.length);
 
     return res.status(200).json({
       success: true,
       message: "Deals fetched successfully.",
-      data: deals,
+      data: fetchedDeals,
     });
   } catch (error) {
     next(error);
   }
 };
 
+console.log("in controller");
 export const getFilterOptions = async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const options = await dealsService.getFilterOptions();

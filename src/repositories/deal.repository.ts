@@ -55,6 +55,42 @@ export interface DealFilterOptions {
   personsRange: { min: number; max: number };
 }
 
+export interface UpdateBrandInput {
+  name?: string;
+  slug?: string;
+  baseUrl?: string;
+  isActive?: boolean;
+  tagline?: string;
+  description?: string;
+  imgUrl?: string;
+  logoUrl?: string;
+  website?: string;
+  cities?: string[];
+  areas?: string[];
+  locations?: Array<{ lat: number; lng: number }>;
+  country?: string;
+}
+
+export interface BrandDealUpsertInput {
+  externalId: string;
+  title: string;
+  description?: string;
+  price: number;
+  originalPrice?: number;
+  currency?: string;
+  discountPercent?: number;
+  minPersons?: number;
+  maxPersons?: number;
+  cuisineTags?: string[];
+  mealType?: string[];
+  conditions?: string;
+  startTime?: string | Date;
+  endTime?: string | Date;
+  imgUrl?: string;
+  isHot?: boolean;
+  isActive?: boolean;
+}
+
 // const brandSchema = new Schema<BrandDocument>(
 //   {
 //     brandId: {
@@ -129,6 +165,46 @@ export class DealRepository {
     return (mongoError.message ?? "").includes("Transaction numbers are only allowed");
   }
 
+  private normalizeStringArray(values: unknown): string[] {
+    if (!Array.isArray(values)) {
+      return [];
+    }
+
+    return values
+      .filter((value): value is string => typeof value === "string")
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0);
+  }
+
+  private normalizeDate(value: string | Date | undefined): Date | undefined {
+    if (value === undefined) {
+      return undefined;
+    }
+
+    const date = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(date.getTime()) ? undefined : date;
+  }
+
+  private async resolveBrand(brandIdentifier: string): Promise<BrandDocument | null> {
+    const identifier = brandIdentifier.trim();
+
+    if (!identifier.length) {
+      return null;
+    }
+
+    return BrandModel.findOne({
+      $or: [
+        { _id: identifier },
+        { brandId: identifier },
+        { slug: identifier },
+      ],
+    });
+  }
+
+  private getBrandLogo(brand: BrandDocument): string {
+    return brand.imgUrl ?? brand.logoUrl ?? "";
+  }
+
   // the function we need are:
   // 1. updateOrInsertBrand(brandInfo{}) - this will check if the brand already exists in the database by its slug and if it does it will return the brand document otherwise it will create a new brand document and return it
   // 2. syncDealsForBrand(brandId, deals) - this will take the brand id and the array of deals for that brand and it will sync the deals in the database by doing the following:
@@ -166,6 +242,171 @@ export class DealRepository {
     console.log("Upserted brand:", brand.slug, brand._id);
 
     return brand;
+  }
+
+  async updateBrand(brandIdentifier: string, updates: UpdateBrandInput): Promise<BrandDocument | null> {
+    const brand = await this.resolveBrand(brandIdentifier);
+
+    if (!brand) {
+      return null;
+    }
+
+    const brandUpdates: Record<string, unknown> = {};
+
+    for (const [key, value] of Object.entries(updates)) {
+      if (value === undefined) {
+        continue;
+      }
+
+      if (key === "logoUrl" && updates.imgUrl === undefined) {
+        brandUpdates.imgUrl = value;
+        continue;
+      }
+
+      brandUpdates[key] = value;
+    }
+
+    if (Object.keys(brandUpdates).length === 0) {
+      return brand;
+    }
+
+    const updatedBrand = await BrandModel.findByIdAndUpdate(
+      brand._id,
+      { $set: brandUpdates },
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedBrand) {
+      return null;
+    }
+
+    const dealUpdates: Record<string, unknown> = {};
+
+    if (Object.prototype.hasOwnProperty.call(brandUpdates, "slug")) {
+      dealUpdates.brandSlug = updatedBrand.slug;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(brandUpdates, "baseUrl")) {
+      dealUpdates.baseUrl = updatedBrand.baseUrl;
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(brandUpdates, "imgUrl") ||
+      Object.prototype.hasOwnProperty.call(brandUpdates, "logoUrl")
+    ) {
+      dealUpdates.brandLogoUrl = this.getBrandLogo(updatedBrand);
+    }
+
+    if (Object.keys(dealUpdates).length > 0) {
+      await DealModel.updateMany(
+        { brandId: updatedBrand._id },
+        { $set: dealUpdates }
+      );
+    }
+
+    return updatedBrand;
+  }
+
+  async upsertDealForBrand(
+    brandIdentifier: string,
+    dealInput: BrandDealUpsertInput
+  ): Promise<DealDocument | null> {
+    const brand = await this.resolveBrand(brandIdentifier);
+
+    if (!brand) {
+      return null;
+    }
+
+    const externalId = dealInput.externalId.trim();
+    const title = dealInput.title.trim();
+
+    if (!externalId || !title || typeof dealInput.price !== "number" || Number.isNaN(dealInput.price)) {
+      throw new Error("externalId, title and price are required to upsert a deal.");
+    }
+
+    const now = new Date();
+    const startTime = this.normalizeDate(dealInput.startTime);
+    const endTime = this.normalizeDate(dealInput.endTime);
+
+    const isExpired = endTime ? endTime <= now : false;
+    const isActive = isExpired
+      ? false
+      : typeof dealInput.isActive === "boolean"
+        ? dealInput.isActive
+        : startTime
+          ? startTime <= now
+          : true;
+
+    return DealModel.findOneAndUpdate(
+      { brandId: brand._id, externalId },
+      {
+        $setOnInsert: {
+          dealId: uuidv4(),
+        },
+        $set: {
+          brandId: brand._id,
+          brandSlug: brand.slug,
+          externalId,
+          title,
+          description: dealInput.description ?? "",
+          price: dealInput.price,
+          originalPrice: dealInput.originalPrice,
+          currency: dealInput.currency ?? "PKR",
+          discountPercent: dealInput.discountPercent,
+          minPersons: dealInput.minPersons,
+          maxPersons: dealInput.maxPersons,
+          cuisineTags: this.normalizeStringArray(dealInput.cuisineTags),
+          mealType: this.normalizeStringArray(dealInput.mealType),
+          conditions: dealInput.conditions,
+          startTime,
+          endTime,
+          isExpired,
+          isActive,
+          isHot: dealInput.isHot ?? false,
+          imgUrl: dealInput.imgUrl ?? "",
+          scrapedAt: now,
+          baseUrl: brand.baseUrl,
+          brandLogoUrl: this.getBrandLogo(brand),
+        },
+      },
+      {
+        new: true,
+        upsert: true,
+        runValidators: true,
+        setDefaultsOnInsert: true,
+      }
+    );
+  }
+
+  async deleteDealForBrand(brandIdentifier: string, dealIdentifier: string): Promise<DealDocument | null> {
+    const brand = await this.resolveBrand(brandIdentifier);
+
+    if (!brand) {
+      return null;
+    }
+
+    const normalizedDealIdentifier = dealIdentifier.trim();
+
+    if (!normalizedDealIdentifier.length) {
+      throw new Error("dealId is required.");
+    }
+
+    return DealModel.findOneAndUpdate(
+      {
+        brandId: brand._id,
+        $or: [
+          { dealId: normalizedDealIdentifier },
+          { externalId: normalizedDealIdentifier },
+        ],
+      },
+      {
+        $set: {
+          isActive: false,
+          isHot: false,
+        },
+      },
+      { new: true }
+    );
   }
 
 async syncDealsForBrand(brandId: string, deals: DealDocument[], brandInfo: { brand: string; slug: string; url: string }): Promise<void> {
@@ -463,29 +704,59 @@ async syncDealsForBrand(brandId: string, deals: DealDocument[], brandInfo: { bra
     return await DealModel.findOne({ dealId: dealId });
   }
 
-  async getDealsByIds(dealIds: string[]): Promise<DealDocument[]> {
-    const uniqueDealIds = [...new Set(dealIds.map((dealId) => dealId.trim()).filter(Boolean))];
+  async getDealsByIds(
+  requestedDeals: Array<{ dealId: string; brandSlug: string }>
+): Promise<DealDocument[]> {
 
-    if (!uniqueDealIds.length) {
-      return [];
-    }
+  // Normalize input
+  const normalizedDeals = requestedDeals
+    .map((deal) => ({
+      externalId: String(deal.dealId).trim(),
+      brandSlug: String(deal.brandSlug).trim(),
+    }))
+    .filter((deal) => deal.externalId.length > 0 && deal.brandSlug.length > 0);
 
-    const deals = await DealModel.find({ dealId: { $in: uniqueDealIds } });
-    const dealsById = new Map<string, DealDocument>(
-      deals.map((deal: DealDocument) => [deal.dealId, deal] as [string, DealDocument])
-    );
-    const orderedDeals: DealDocument[] = [];
-
-    for (const dealId of uniqueDealIds) {
-      const deal = dealsById.get(dealId);
-      if (deal) {
-        orderedDeals.push(deal);
-      }
-    }
-
-    return orderedDeals;
+  if (!normalizedDeals.length) {
+    return [];
   }
 
+  // Build OR query
+  const orConditions = normalizedDeals.map((deal) => ({
+    externalId: deal.externalId,
+    brandSlug: deal.brandSlug,
+  }));
+
+  console.log("[DealRepository] Querying deals with criteria:", orConditions);
+
+  // Fetch from DB
+  const foundDeals = await DealModel.find({ $or: orConditions });
+
+  console.log("[DealRepository] Raw found deals count:", foundDeals.length);
+
+  // Build lookup map using CORRECT fields
+  const dealsByKey = new Map(
+    foundDeals.map((deal) => [
+      `${deal.externalId}:${deal.brandSlug}`,
+      deal,
+    ])
+  );
+
+  // Preserve input order
+  const orderedDeals: DealDocument[] = [];
+
+  for (const deal of normalizedDeals) {
+    const key = `${deal.externalId}:${deal.brandSlug}`;
+    const foundDeal = dealsByKey.get(key);
+
+    if (foundDeal) {
+      orderedDeals.push(foundDeal);
+    }
+  }
+
+  console.log("[DealRepository] Ordered deals count:", orderedDeals.length);
+
+  return orderedDeals;
+}
   async getDeals(filters: DealFilters): Promise<DealsListResult> {
     const mongoFilter: Record<string, unknown> = {};
 
