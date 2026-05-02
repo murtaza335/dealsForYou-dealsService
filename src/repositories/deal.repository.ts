@@ -947,13 +947,15 @@ async syncDealsForBrand(brandId: string, deals: DealDocument[], brandInfo: { bra
 
   async getFilterBrands(): Promise<Array<{ name: string; slug: string }>> {
     const brands = await BrandModel.find({ isActive: true })
-      .select({ _id: 0, name: 1, slug: 1 })
+      .select({ _id: 0, name: 1, slug: 1, imgUrl: 1, baseUrl: 1 })
       .sort({ name: 1 })
       .lean();
 
-    return brands.map((brand: { name: string; slug: string }) => ({
-      name: brand.name,
-      slug: brand.slug,
+    return brands.map((b) => ({
+      name: b.name,
+      slug: b.slug,
+      imgUrl: b.imgUrl,
+      baseUrl: b.baseUrl,
     }));
   }
 

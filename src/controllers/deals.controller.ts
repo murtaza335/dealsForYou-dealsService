@@ -240,7 +240,6 @@ export const getDealsByIds = async (req: Request, res: Response, next: NextFunct
   }
 };
 
-console.log("in controller");
 export const getFilterOptions = async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const options = await dealsService.getFilterOptions();

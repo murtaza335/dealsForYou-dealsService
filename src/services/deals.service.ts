@@ -25,7 +25,6 @@ class DealsService {
   }
 
   async getFilterOptions(): Promise<DealFilterOptions> {
-    console.log("in service")
     return this.dealRepository.getFilterOptions();
   }
 
