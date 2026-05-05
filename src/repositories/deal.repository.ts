@@ -705,58 +705,59 @@ async syncDealsForBrand(brandId: string, deals: DealDocument[], brandInfo: { bra
   }
 
   async getDealsByIds(
-  requestedDeals: Array<{ dealId: string; brandSlug: string }>
-): Promise<DealDocument[]> {
+    requestedDeals: string[] | Array<{ dealId: string; brandSlug?: string }>
+  ): Promise<DealDocument[]> {
+    const normalizedDeals = requestedDeals
+      .map((deal) =>
+        typeof deal === "string"
+          ? { dealId: deal.trim(), brandSlug: undefined }
+          : {
+              dealId: String(deal.dealId ?? "").trim(),
+              brandSlug: deal.brandSlug ? String(deal.brandSlug).trim() : undefined,
+            }
+      )
+      .filter((deal) => deal.dealId.length > 0);
 
-  // Normalize input
-  const normalizedDeals = requestedDeals
-    .map((deal) => ({
-      externalId: String(deal.dealId).trim(),
-      brandSlug: String(deal.brandSlug).trim(),
-    }))
-    .filter((deal) => deal.externalId.length > 0 && deal.brandSlug.length > 0);
-
-  if (!normalizedDeals.length) {
-    return [];
-  }
-
-  // Build OR query
-  const orConditions = normalizedDeals.map((deal) => ({
-    externalId: deal.externalId,
-    brandSlug: deal.brandSlug,
-  }));
-
-  console.log("[DealRepository] Querying deals with criteria:", orConditions);
-
-  // Fetch from DB
-  const foundDeals = await DealModel.find({ $or: orConditions });
-
-  console.log("[DealRepository] Raw found deals count:", foundDeals.length);
-
-  // Build lookup map using CORRECT fields
-  const dealsByKey = new Map(
-    foundDeals.map((deal) => [
-      `${deal.externalId}:${deal.brandSlug}`,
-      deal,
-    ])
-  );
-
-  // Preserve input order
-  const orderedDeals: DealDocument[] = [];
-
-  for (const deal of normalizedDeals) {
-    const key = `${deal.externalId}:${deal.brandSlug}`;
-    const foundDeal = dealsByKey.get(key);
-
-    if (foundDeal) {
-      orderedDeals.push(foundDeal);
+    if (!normalizedDeals.length) {
+      return [];
     }
+
+    const dealIds = [...new Set(normalizedDeals.map((deal) => deal.dealId))];
+    const externalIdConditions = normalizedDeals
+      .filter((deal) => deal.brandSlug)
+      .map((deal) => ({
+        externalId: deal.dealId,
+        brandSlug: deal.brandSlug,
+      }));
+
+    const foundDeals = await DealModel.find({
+      $or: [
+        { dealId: { $in: dealIds } },
+        ...externalIdConditions,
+      ],
+    });
+
+    const dealsByDealId = new Map(foundDeals.map((deal) => [deal.dealId, deal]));
+    const dealsByExternalKey = new Map(
+      foundDeals.map((deal) => [`${deal.externalId}:${deal.brandSlug}`, deal])
+    );
+
+    const orderedDeals: DealDocument[] = [];
+    const addedIds = new Set<string>();
+
+    for (const deal of normalizedDeals) {
+      const foundDeal =
+        dealsByDealId.get(deal.dealId) ??
+        (deal.brandSlug ? dealsByExternalKey.get(`${deal.dealId}:${deal.brandSlug}`) : undefined);
+
+      if (foundDeal && !addedIds.has(foundDeal.dealId)) {
+        orderedDeals.push(foundDeal);
+        addedIds.add(foundDeal.dealId);
+      }
+    }
+
+    return orderedDeals;
   }
-
-  console.log("[DealRepository] Ordered deals count:", orderedDeals.length);
-
-  return orderedDeals;
-}
   async getDeals(filters: DealFilters): Promise<DealsListResult> {
     const mongoFilter: Record<string, unknown> = {};
 

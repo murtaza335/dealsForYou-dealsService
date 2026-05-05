@@ -34,6 +34,17 @@ export interface BrandDocument extends Document<Types.ObjectId> {
   areas?: string[];
   locations?: { lat: number; lng: number }[];
   country?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  approvalStatus: "PENDING" | "APPROVED" | "REJECTED";
+  scrapeRequested: boolean;
+  scraperStatus: "NOT_REQUESTED" | "PENDING_SETUP" | "ACTIVE" | "DISABLED";
+  manualDealManagementEnabled: boolean;
+  cuisineTags?: string[];
+  socials?: Record<string, string>;
+  notes?: string;
+  rejectionReason?: string;
+  approvedAt?: Date;
 }
 
 const brandSchema = new Schema<BrandDocument>(
@@ -57,6 +68,26 @@ const brandSchema = new Schema<BrandDocument>(
     areas: [ { type: String } ],
     locations: [{ type: { lat: Number, lng: Number } }],
     country: { type: String },
+    contactEmail: { type: String },
+    contactPhone: { type: String },
+    approvalStatus: {
+      type: String,
+      enum: ["PENDING", "APPROVED", "REJECTED"],
+      default: "PENDING",
+      index: true,
+    },
+    scrapeRequested: { type: Boolean, default: false },
+    scraperStatus: {
+      type: String,
+      enum: ["NOT_REQUESTED", "PENDING_SETUP", "ACTIVE", "DISABLED"],
+      default: "NOT_REQUESTED",
+    },
+    manualDealManagementEnabled: { type: Boolean, default: true },
+    cuisineTags: [{ type: String }],
+    socials: { type: Schema.Types.Mixed },
+    notes: { type: String },
+    rejectionReason: { type: String },
+    approvedAt: { type: Date },
   },
   { timestamps: true }
 );

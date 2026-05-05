@@ -1,19 +1,117 @@
-import amqp, { Channel, ChannelModel, Connection } from "amqplib";
+import amqp, { Channel, ChannelModel } from "amqplib";
 import { DealRepository } from "../repositories/deal.repository.js";
 import { isTransientError } from "../error.js";
 
 class RabbitMQSubscriber {
     private connection: ChannelModel | null = null;
     private channel: Channel | null = null;
+    private reconnectTimer: NodeJS.Timeout | null = null;
+    private reconnectAttempts = 0;
+    private shuttingDown = false;
+    private suppressReconnect = false;
     private readonly queue = "scraper_deals_queue";
+    private readonly maxReconnectDelayMs = 30000;
 
     dealRepo = new DealRepository();
     constructor() { }
 
     async init() {
+        this.shuttingDown = false;
+        void this.connect();
+    }
+
+    private clearReconnectTimer() {
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
+    }
+
+    private cleanupConnection() {
+        this.channel = null;
+        this.connection = null;
+    }
+
+    private scheduleReconnect(reason: string) {
+        if (this.shuttingDown || this.suppressReconnect || this.reconnectTimer) return;
+
+        const delay = Math.min(1000 * 2 ** this.reconnectAttempts, this.maxReconnectDelayMs);
+        this.reconnectAttempts = Math.min(this.reconnectAttempts + 1, 5);
+
+        console.warn(`RabbitMQ subscriber reconnect scheduled in ${delay}ms (${reason}).`);
+        this.reconnectTimer = setTimeout(() => {
+            this.reconnectTimer = null;
+            void this.connect();
+        }, delay);
+    }
+
+    private attachConnectionHandlers() {
+        if (!this.connection) return;
+
+        this.connection.on("error", (error) => {
+            console.error("❌ RabbitMQ subscriber connection error:", error);
+        });
+
+        this.connection.on("close", () => {
+            console.warn("RabbitMQ subscriber connection closed.");
+            this.cleanupConnection();
+            this.scheduleReconnect("connection closed");
+        });
+    }
+
+    private attachChannelHandlers() {
+        if (!this.channel) return;
+
+        this.channel.on("error", (error) => {
+            console.error("❌ RabbitMQ subscriber channel error:", error);
+        });
+
+        this.channel.on("close", () => {
+            console.warn("RabbitMQ subscriber channel closed.");
+            this.cleanupConnection();
+            this.scheduleReconnect("channel closed");
+        });
+    }
+
+    private async closeResources() {
+        const channel = this.channel;
+        const connection = this.connection;
+
+        this.cleanupConnection();
+        this.suppressReconnect = true;
+
         try {
+            if (channel) {
+                await channel.close();
+            }
+        } catch {
+            // ignore shutdown races
+        }
+
+        try {
+            if (connection) {
+                await connection.close();
+            }
+        } catch {
+            // ignore shutdown races
+        }
+
+        this.suppressReconnect = false;
+    }
+
+    private async connect() {
+        try {
+            this.clearReconnectTimer();
+
+            if (this.connection || this.channel) {
+                await this.closeResources();
+            }
+
             this.connection = await amqp.connect(process.env.RABBITMQ_URL || "amqp://localhost");
+            this.attachConnectionHandlers();
+
             this.channel = await this.connection.createChannel();
+            this.attachChannelHandlers();
 
             await this.channel.assertQueue(this.queue, { durable: true });
 
@@ -21,6 +119,7 @@ class RabbitMQSubscriber {
             // This prevents one worker from getting overloaded while others are idle
             this.channel.prefetch(1);
 
+            this.reconnectAttempts = 0;
             console.log(`Waiting for messages in ${this.queue}...`);
 
             // 2. Start consuming
@@ -31,6 +130,8 @@ class RabbitMQSubscriber {
             });
         } catch (error) {
             console.error("❌ Subscriber Error:", error);
+            this.cleanupConnection();
+            this.scheduleReconnect("initial connection failed");
         }
     }
 
@@ -81,6 +182,12 @@ class RabbitMQSubscriber {
                     this.channel.nack(msg, false, false);
                 }
         }
+    }
+
+    async closeSubscriber(): Promise<void> {
+        this.shuttingDown = true;
+        this.clearReconnectTimer();
+        await this.closeResources();
     }
 }
 

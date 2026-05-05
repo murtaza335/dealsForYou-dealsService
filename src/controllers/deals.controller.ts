@@ -202,7 +202,8 @@ export const getDealsByIds = async (req: Request, res: Response, next: NextFunct
 
   try {
     const dealsParam = req.query.deals;
-    let deals: Array<{ dealId: string; brandSlug: string }> = [];
+    const ids = parseStringListQuery(req.query.ids);
+    let deals: string[] | Array<{ dealId: string; brandSlug?: string }> = ids;
 
     if (typeof dealsParam === "string") {
       try {
@@ -220,7 +221,7 @@ export const getDealsByIds = async (req: Request, res: Response, next: NextFunct
     if (!deals.length) {
       return res.status(400).json({
         success: false,
-        message: "deals query parameter is required.",
+        message: "ids or deals query parameter is required.",
       });
     }
 
