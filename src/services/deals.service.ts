@@ -64,6 +64,8 @@ class DealsService {
   ): Promise<DealDocument | null> {
     return this.dealRepository.deleteDealForBrand(brandIdentifier, dealIdentifier);
   }
+
+
 }
 
 export const dealsService = new DealsService();

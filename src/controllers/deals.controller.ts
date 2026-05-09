@@ -111,7 +111,7 @@ const parseDealsFilters = (req: Request): DealFilters | { error: string } => {
 
   const sortBy =
     typeof req.query.sortBy === "string" &&
-    ["createdAt", "price", "discountPercent", "viewsCount", "endTime"].includes(req.query.sortBy)
+      ["createdAt", "price", "discountPercent", "viewsCount", "endTime"].includes(req.query.sortBy)
       ? (req.query.sortBy as DealFilters["sortBy"])
       : undefined;
 
@@ -310,3 +310,5 @@ export const getFilterPriceRange = async (_req: Request, res: Response, next: Ne
     next(error);
   }
 };
+
+

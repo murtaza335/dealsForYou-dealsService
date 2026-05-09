@@ -7,6 +7,7 @@ import { BrandDocument, BrandModel } from "../models/brands.model.js";
 import { v4 as uuidv4 } from "uuid";
 import { publishDealCreated } from "../services/rabbitmq.publisher.js";
 import { metadataEnrichmentService } from "../services/metadata.enrichment.service.js";
+import { queryParserService } from "../services/query.parser.service.js";
 
 export interface DealFilters {
   minPrice?: number;
@@ -216,7 +217,7 @@ export class DealRepository {
   // 6. markHotDeals() - this will be a function that will be called by a background job to mark the hot deals based on the views count and the discount percent or any other criteria we want to use to determine if a deal is hot or not.
 
   async updateOrInsertBrand(
-    brandInfo: { name: string; slug: string; baseUrl: string , brandLogoUrl?: string }
+    brandInfo: { name: string; slug: string; baseUrl: string, brandLogoUrl?: string }
   ): Promise<BrandDocument> {
 
     const brand = await BrandModel.findOneAndUpdate(
@@ -409,289 +410,289 @@ export class DealRepository {
     );
   }
 
-async syncDealsForBrand(brandId: string, deals: DealDocument[], brandInfo: { brand: string; slug: string; url: string }): Promise<void> {
-  console.log(
-    `[DealSync] Started | brandId=${brandId} | incomingDeals=${deals?.length ?? 0}`
-  );
-
-  if (!mongoose.Types.ObjectId.isValid(brandId)) {
-    throw new Error(`Invalid brandId: ${brandId}`);
-  }
-
-  const brandObjectId = new mongoose.Types.ObjectId(brandId);
-  const now = new Date();
-
-  console.log(
-    `[DealSync] Target | db=${DealModel.db.name} | collection=${DealModel.collection.name}`
-  );
-
-  const validDeals = new Map<string, DealDocument>();
-  let skippedCount = 0;
-
-  for (const [index, raw] of deals.entries()) {
-    if (!raw) {
-      console.log(`[DealSync] Skip null payload | idx=${index + 1}`);
-      skippedCount += 1;
-      continue;
-    }
-
-    const externalId = String((raw as any).externalId ?? "").trim();
-
-    if (!externalId) {
-      console.log(`[DealSync] Skip: missing externalId | idx=${index + 1}`);
-      skippedCount += 1;
-      continue;
-    }
-
-    if (!raw.title || raw.price == null) {
-      console.log(`[DealSync] Skip invalid deal | externalId=${externalId}`);
-      skippedCount += 1;
-      continue;
-    }
-
-    const endTime = raw.endTime ? new Date(raw.endTime) : null;
-    if (endTime && isNaN(endTime.getTime())) {
-      console.log(`[DealSync] Skip invalid endTime | externalId=${externalId}`);
-      skippedCount += 1;
-      continue;
-    }
-
-    validDeals.set(externalId, raw);
-  }
-
-  const incomingExternalIds = [...validDeals.keys()];
-  console.log(
-    `[DealSync] Prepared | valid=${incomingExternalIds.length} | skipped=${skippedCount}`
-  );
-
-  const bulkOps = incomingExternalIds.map((externalId) => {
-    const raw = validDeals.get(externalId)!;
-    const endTime = raw.endTime ? new Date(raw.endTime) : null;
-    const startTime = raw.startTime ? new Date(raw.startTime) : null;
-
-    let isExpired = endTime ? endTime <= now : false;
-    let isActive = startTime ? startTime <= now : true;
-    if (isExpired) isActive = false;
-
-    return {
-      updateOne: {
-        filter: { brandId: brandObjectId, externalId },
-        update: {
-          $setOnInsert: {
-            dealId: uuidv4(),
-          },
-          $set: {
-            brandId: brandObjectId,
-            externalId,
-            brandSlug: raw.brandSlug ??  "unknown-brand",
-            title: raw.title,
-            description: raw.description ?? "",
-            price: raw.price,
-            originalPrice: raw.originalPrice ?? undefined,
-            currency: raw.currency ?? "PKR",
-            discountPercent: raw.discountPercent ?? undefined,
-            minPersons: raw.minPersons ?? undefined,
-            maxPersons: raw.maxPersons ?? undefined,
-            cuisineTags: Array.isArray(raw.cuisineTags) ? raw.cuisineTags : [],
-            mealType: Array.isArray(raw.mealType) ? raw.mealType : [],
-            conditions: raw.conditions ?? undefined,
-            startTime: startTime ?? undefined,
-            endTime: endTime ?? undefined,
-            isExpired,
-            isActive,
-            imgUrl: raw.imgUrl ?? "",
-            scrapedAt: now,
-            baseUrl: brandInfo.url ?? "",
-          },
-        },
-        upsert: true,
-      },
-    };
-  });
-
-  if (bulkOps.length > 0) {
-    let upsertedIds: string[] = [];
-
-  try {
-    const bulkResult = await DealModel.bulkWrite(bulkOps, { ordered: false });
+  async syncDealsForBrand(brandId: string, deals: DealDocument[], brandInfo: { brand: string; slug: string; url: string }): Promise<void> {
     console.log(
-      `[DealSync] Bulk result | matched=${bulkResult.matchedCount} | modified=${bulkResult.modifiedCount} | upserted=${bulkResult.upsertedCount}`
+      `[DealSync] Started | brandId=${brandId} | incomingDeals=${deals?.length ?? 0}`
     );
 
-    // Collect only newly inserted _ids
-    if (bulkResult.upsertedIds && Object.keys(bulkResult.upsertedIds).length > 0) {
-      upsertedIds = Object.values(bulkResult.upsertedIds).map((id) => id.toString());
-      console.log(`[DealSync] Collected upsertedIds | count=${upsertedIds.length}`);
+    if (!mongoose.Types.ObjectId.isValid(brandId)) {
+      throw new Error(`Invalid brandId: ${brandId}`);
     }
-  } catch (error) {
-    const mongoError = error as {
-      message?: string;
-      code?: number;
-      writeErrors?: Array<{ code?: number; errmsg?: string }>;
-    };
 
-    console.error(
-      `[DealSync] Bulk upsert failed | code=${mongoError.code ?? "n/a"} | message=${mongoError.message ?? "unknown"}`
+    const brandObjectId = new mongoose.Types.ObjectId(brandId);
+    const now = new Date();
+
+    console.log(
+      `[DealSync] Target | db=${DealModel.db.name} | collection=${DealModel.collection.name}`
     );
 
-    const writeErrors = mongoError.writeErrors ?? [];
-    const onlyDuplicateErrors =
-      writeErrors.length > 0 && writeErrors.every((entry) => entry.code === 11000);
+    const validDeals = new Map<string, DealDocument>();
+    let skippedCount = 0;
 
-    if (!onlyDuplicateErrors) {
-      throw error;
-    }
-
-    console.warn(
-      `[DealSync] Bulk had duplicate-key races | retrying as update-only ops=${writeErrors.length}`
-    );
-
-    // Retry without upsert (update-only)
-    try {
-      await DealModel.bulkWrite(
-        bulkOps.map((op) => ({
-          updateOne: {
-            filter: op.updateOne.filter,
-            update: op.updateOne.update,
-            upsert: false,
-          },
-        })),
-        { ordered: false }
-      );
-      console.log(`[DealSync] Retry completed successfully`);
-    } catch (retryError) {
-      console.error(`[DealSync] Retry failed | error=${(retryError as Error).message}`);
-      throw retryError;
-    }
-  }
-
-  let newlyInsertedDeals: DealDocument[] = [];
-
-  // Only publish newly upserted deals
-  if (upsertedIds.length > 0) {
-    try {
-      newlyInsertedDeals = await DealModel.find({ _id: { $in: upsertedIds } });
-      console.log(`[DealSync] Found ${newlyInsertedDeals.length} deals to publish`);
-
-      let publishedCount = 0;
-      let failedCount = 0;
-
-      for (const deal of newlyInsertedDeals) {
-        try {
-          if (!deal.dealId) {
-            console.warn(`[DealSync] Skipping publish: deal missing dealId | _id=${deal._id}`);
-            failedCount += 1;
-            continue;
-          }
-
-          await publishDealCreated(deal.dealId, deal, brandId);
-          publishedCount += 1;
-        } catch (pubErr) {
-          const errMsg = (pubErr as Error).message ?? "unknown error";
-          console.error(`[DealSync] Failed to publish deal | dealId=${deal.dealId} | error=${errMsg}`);
-          failedCount += 1;
-        }
-      }
-
-      console.log(
-        `[DealSync] Publishing summary | total=${newlyInsertedDeals.length} | published=${publishedCount} | failed=${failedCount}`
-      );
-
-      if (failedCount > 0) {
-        console.warn(
-          `[DealSync] ${failedCount} deals failed to publish | brandId=${brandId}`
-        );
-      }
-    } catch (fetchError) {
-      const errMsg = (fetchError as Error).message ?? "unknown error";
-      console.error(`[DealSync] Failed to fetch upserted deals | error=${errMsg}`);
-      throw fetchError;
-    }
-  } else {
-    console.log(`[DealSync] No new deals to publish | brandId=${brandId}`);
-  }
-
-  if (newlyInsertedDeals.length > 0) {
-    console.log(`[DealSync] Starting metadata enrichment | total=${newlyInsertedDeals.length}`);
-
-    let enrichedCount = 0;
-    let enrichmentFailedCount = 0;
-
-    const enrichmentResults = await metadataEnrichmentService.enrichDealsMetadata(newlyInsertedDeals, brandId);
-    const resultByDealId = new Map(enrichmentResults.map((entry) => [entry.dealId, entry.metadata]));
-
-    const bulkUpdates: Array<{
-      updateOne: {
-        filter: { _id: mongoose.Types.ObjectId };
-        update: {
-          $set: {
-            metadata: Record<string, unknown>;
-            metadataEnrichedAt: Date;
-            metadataSource: string;
-          };
-        };
-      };
-    }> = [];
-
-    for (const deal of newlyInsertedDeals) {
-      const metadata = resultByDealId.get(deal.dealId);
-      if (!metadata) {
-        enrichmentFailedCount += 1;
+    for (const [index, raw] of deals.entries()) {
+      if (!raw) {
+        console.log(`[DealSync] Skip null payload | idx=${index + 1}`);
+        skippedCount += 1;
         continue;
       }
 
-      enrichedCount += 1;
-      bulkUpdates.push({
-        updateOne: {
-          filter: { _id: deal._id as mongoose.Types.ObjectId },
-          update: {
-            $set: {
-              metadata,
-              metadataEnrichedAt: new Date(),
-              metadataSource: "groq",
-            },
-          },
-        },
-      });
+      const externalId = String((raw as any).externalId ?? "").trim();
+
+      if (!externalId) {
+        console.log(`[DealSync] Skip: missing externalId | idx=${index + 1}`);
+        skippedCount += 1;
+        continue;
+      }
+
+      if (!raw.title || raw.price == null) {
+        console.log(`[DealSync] Skip invalid deal | externalId=${externalId}`);
+        skippedCount += 1;
+        continue;
+      }
+
+      const endTime = raw.endTime ? new Date(raw.endTime) : null;
+      if (endTime && isNaN(endTime.getTime())) {
+        console.log(`[DealSync] Skip invalid endTime | externalId=${externalId}`);
+        skippedCount += 1;
+        continue;
+      }
+
+      validDeals.set(externalId, raw);
     }
 
-    if (bulkUpdates.length > 0) {
-      await DealModel.bulkWrite(bulkUpdates, { ordered: false });
+    const incomingExternalIds = [...validDeals.keys()];
+    console.log(
+      `[DealSync] Prepared | valid=${incomingExternalIds.length} | skipped=${skippedCount}`
+    );
+
+    const bulkOps = incomingExternalIds.map((externalId) => {
+      const raw = validDeals.get(externalId)!;
+      const endTime = raw.endTime ? new Date(raw.endTime) : null;
+      const startTime = raw.startTime ? new Date(raw.startTime) : null;
+
+      let isExpired = endTime ? endTime <= now : false;
+      let isActive = startTime ? startTime <= now : true;
+      if (isExpired) isActive = false;
+
+      return {
+        updateOne: {
+          filter: { brandId: brandObjectId, externalId },
+          update: {
+            $setOnInsert: {
+              dealId: uuidv4(),
+            },
+            $set: {
+              brandId: brandObjectId,
+              externalId,
+              brandSlug: raw.brandSlug ?? "unknown-brand",
+              title: raw.title,
+              description: raw.description ?? "",
+              price: raw.price,
+              originalPrice: raw.originalPrice ?? undefined,
+              currency: raw.currency ?? "PKR",
+              discountPercent: raw.discountPercent ?? undefined,
+              minPersons: raw.minPersons ?? undefined,
+              maxPersons: raw.maxPersons ?? undefined,
+              cuisineTags: Array.isArray(raw.cuisineTags) ? raw.cuisineTags : [],
+              mealType: Array.isArray(raw.mealType) ? raw.mealType : [],
+              conditions: raw.conditions ?? undefined,
+              startTime: startTime ?? undefined,
+              endTime: endTime ?? undefined,
+              isExpired,
+              isActive,
+              imgUrl: raw.imgUrl ?? "",
+              scrapedAt: now,
+              baseUrl: brandInfo.url ?? "",
+            },
+          },
+          upsert: true,
+        },
+      };
+    });
+
+    if (bulkOps.length > 0) {
+      let upsertedIds: string[] = [];
+
+      try {
+        const bulkResult = await DealModel.bulkWrite(bulkOps, { ordered: false });
+        console.log(
+          `[DealSync] Bulk result | matched=${bulkResult.matchedCount} | modified=${bulkResult.modifiedCount} | upserted=${bulkResult.upsertedCount}`
+        );
+
+        // Collect only newly inserted _ids
+        if (bulkResult.upsertedIds && Object.keys(bulkResult.upsertedIds).length > 0) {
+          upsertedIds = Object.values(bulkResult.upsertedIds).map((id) => id.toString());
+          console.log(`[DealSync] Collected upsertedIds | count=${upsertedIds.length}`);
+        }
+      } catch (error) {
+        const mongoError = error as {
+          message?: string;
+          code?: number;
+          writeErrors?: Array<{ code?: number; errmsg?: string }>;
+        };
+
+        console.error(
+          `[DealSync] Bulk upsert failed | code=${mongoError.code ?? "n/a"} | message=${mongoError.message ?? "unknown"}`
+        );
+
+        const writeErrors = mongoError.writeErrors ?? [];
+        const onlyDuplicateErrors =
+          writeErrors.length > 0 && writeErrors.every((entry) => entry.code === 11000);
+
+        if (!onlyDuplicateErrors) {
+          throw error;
+        }
+
+        console.warn(
+          `[DealSync] Bulk had duplicate-key races | retrying as update-only ops=${writeErrors.length}`
+        );
+
+        // Retry without upsert (update-only)
+        try {
+          await DealModel.bulkWrite(
+            bulkOps.map((op) => ({
+              updateOne: {
+                filter: op.updateOne.filter,
+                update: op.updateOne.update,
+                upsert: false,
+              },
+            })),
+            { ordered: false }
+          );
+          console.log(`[DealSync] Retry completed successfully`);
+        } catch (retryError) {
+          console.error(`[DealSync] Retry failed | error=${(retryError as Error).message}`);
+          throw retryError;
+        }
+      }
+
+      let newlyInsertedDeals: DealDocument[] = [];
+
+      // Only publish newly upserted deals
+      if (upsertedIds.length > 0) {
+        try {
+          newlyInsertedDeals = await DealModel.find({ _id: { $in: upsertedIds } });
+          console.log(`[DealSync] Found ${newlyInsertedDeals.length} deals to publish`);
+
+          let publishedCount = 0;
+          let failedCount = 0;
+
+          for (const deal of newlyInsertedDeals) {
+            try {
+              if (!deal.dealId) {
+                console.warn(`[DealSync] Skipping publish: deal missing dealId | _id=${deal._id}`);
+                failedCount += 1;
+                continue;
+              }
+
+              await publishDealCreated(deal.dealId, deal, brandId);
+              publishedCount += 1;
+            } catch (pubErr) {
+              const errMsg = (pubErr as Error).message ?? "unknown error";
+              console.error(`[DealSync] Failed to publish deal | dealId=${deal.dealId} | error=${errMsg}`);
+              failedCount += 1;
+            }
+          }
+
+          console.log(
+            `[DealSync] Publishing summary | total=${newlyInsertedDeals.length} | published=${publishedCount} | failed=${failedCount}`
+          );
+
+          if (failedCount > 0) {
+            console.warn(
+              `[DealSync] ${failedCount} deals failed to publish | brandId=${brandId}`
+            );
+          }
+        } catch (fetchError) {
+          const errMsg = (fetchError as Error).message ?? "unknown error";
+          console.error(`[DealSync] Failed to fetch upserted deals | error=${errMsg}`);
+          throw fetchError;
+        }
+      } else {
+        console.log(`[DealSync] No new deals to publish | brandId=${brandId}`);
+      }
+
+      if (newlyInsertedDeals.length > 0) {
+        console.log(`[DealSync] Starting metadata enrichment | total=${newlyInsertedDeals.length}`);
+
+        let enrichedCount = 0;
+        let enrichmentFailedCount = 0;
+
+        const enrichmentResults = await metadataEnrichmentService.enrichDealsMetadata(newlyInsertedDeals, brandId);
+        const resultByDealId = new Map(enrichmentResults.map((entry) => [entry.dealId, entry.metadata]));
+
+        const bulkUpdates: Array<{
+          updateOne: {
+            filter: { _id: mongoose.Types.ObjectId };
+            update: {
+              $set: {
+                metadata: Record<string, unknown>;
+                metadataEnrichedAt: Date;
+                metadataSource: string;
+              };
+            };
+          };
+        }> = [];
+
+        for (const deal of newlyInsertedDeals) {
+          const metadata = resultByDealId.get(deal.dealId);
+          if (!metadata) {
+            enrichmentFailedCount += 1;
+            continue;
+          }
+
+          enrichedCount += 1;
+          bulkUpdates.push({
+            updateOne: {
+              filter: { _id: deal._id as mongoose.Types.ObjectId },
+              update: {
+                $set: {
+                  metadata,
+                  metadataEnrichedAt: new Date(),
+                  metadataSource: "groq",
+                },
+              },
+            },
+          });
+        }
+
+        if (bulkUpdates.length > 0) {
+          await DealModel.bulkWrite(bulkUpdates, { ordered: false });
+        }
+
+        console.log(
+          `[DealSync] Metadata enrichment summary | total=${newlyInsertedDeals.length} | enriched=${enrichedCount} | failed=${enrichmentFailedCount}`
+        );
+      }
     }
 
     console.log(
-      `[DealSync] Metadata enrichment summary | total=${newlyInsertedDeals.length} | enriched=${enrichedCount} | failed=${enrichmentFailedCount}`
+      `[DealSync] Deactivate missing | validIncomingExternalIds=${incomingExternalIds.length}`
     );
+
+    const deactivateResult = await DealModel.updateMany(
+      {
+        brandId: brandObjectId,
+        externalId: { $nin: incomingExternalIds },
+      },
+      {
+        $set: { isActive: false },
+      }
+    );
+
+    const persistedCount = await DealModel.countDocuments({ brandId: brandObjectId });
+
+    console.log(
+      `[DealSync] Deactivate result | matched=${deactivateResult.matchedCount} | modified=${deactivateResult.modifiedCount}`
+    );
+    console.log(
+      `[DealSync] Summary | attempted=${deals.length} | valid=${incomingExternalIds.length} | skipped=${skippedCount} | persistedCount=${persistedCount}`
+    );
+
+    console.log(`[DealSync] DONE | brandId=${brandId}`);
+
+
   }
-}
-
-  console.log(
-    `[DealSync] Deactivate missing | validIncomingExternalIds=${incomingExternalIds.length}`
-  );
-
-  const deactivateResult = await DealModel.updateMany(
-    {
-      brandId: brandObjectId,
-      externalId: { $nin: incomingExternalIds },
-    },
-    {
-      $set: { isActive: false },
-    }
-  );
-
-  const persistedCount = await DealModel.countDocuments({ brandId: brandObjectId });
-
-  console.log(
-    `[DealSync] Deactivate result | matched=${deactivateResult.matchedCount} | modified=${deactivateResult.modifiedCount}`
-  );
-  console.log(
-    `[DealSync] Summary | attempted=${deals.length} | valid=${incomingExternalIds.length} | skipped=${skippedCount} | persistedCount=${persistedCount}`
-  );
-
-  console.log(`[DealSync] DONE | brandId=${brandId}`);
-
-  
-}
 
 
 
@@ -712,9 +713,9 @@ async syncDealsForBrand(brandId: string, deals: DealDocument[], brandInfo: { bra
         typeof deal === "string"
           ? { dealId: deal.trim(), brandSlug: undefined }
           : {
-              dealId: String(deal.dealId ?? "").trim(),
-              brandSlug: deal.brandSlug ? String(deal.brandSlug).trim() : undefined,
-            }
+            dealId: String(deal.dealId ?? "").trim(),
+            brandSlug: deal.brandSlug ? String(deal.brandSlug).trim() : undefined,
+          }
       )
       .filter((deal) => deal.dealId.length > 0);
 
@@ -886,10 +887,24 @@ async syncDealsForBrand(brandId: string, deals: DealDocument[], brandInfo: { bra
       const cuisineRegexes = filters.cuisineTags
         .map((tag) => tag.trim())
         .filter((tag) => tag.length > 0)
-        .map((tag) => new RegExp(`^${this.escapeRegex(tag)}$`, "i"));
+        .map((tag) => new RegExp(this.escapeRegex(tag), "i"));
 
       if (cuisineRegexes.length > 0) {
-        mongoFilter.cuisineTags = { $in: cuisineRegexes };
+        // Search in tags array OR title OR description
+        const tagFilter = {
+          $or: [
+            { cuisineTags: { $in: cuisineRegexes } },
+            ...cuisineRegexes.map(regex => ({ title: regex })),
+            ...cuisineRegexes.map(regex => ({ description: regex }))
+          ]
+        };
+
+        if (mongoFilter.$or) {
+          mongoFilter.$and = [{ $or: mongoFilter.$or }, tagFilter];
+          delete mongoFilter.$or;
+        } else {
+          mongoFilter.$or = tagFilter.$or;
+        }
       }
     }
 
@@ -897,10 +912,28 @@ async syncDealsForBrand(brandId: string, deals: DealDocument[], brandInfo: { bra
       const mealTypeRegexes = filters.mealTypes
         .map((mealType) => mealType.trim())
         .filter((mealType) => mealType.length > 0)
-        .map((mealType) => new RegExp(`^${this.escapeRegex(mealType)}$`, "i"));
+        .map((mealType) => new RegExp(this.escapeRegex(mealType), "i"));
 
       if (mealTypeRegexes.length > 0) {
-        mongoFilter.mealType = { $in: mealTypeRegexes };
+        const mealFilter = {
+          $or: [
+            { mealType: { $in: mealTypeRegexes } },
+            ...mealTypeRegexes.map(regex => ({ title: regex })),
+            ...mealTypeRegexes.map(regex => ({ description: regex }))
+          ]
+        };
+
+        if (mongoFilter.$or) {
+          // Merge with existing $or if any (like from cuisineTags)
+          if (mongoFilter.$and) {
+            (mongoFilter.$and as any[]).push(mealFilter);
+          } else {
+            mongoFilter.$and = [{ $or: mongoFilter.$or }, mealFilter];
+            delete mongoFilter.$or;
+          }
+        } else {
+          mongoFilter.$or = mealFilter.$or;
+        }
       }
     }
 
@@ -932,6 +965,25 @@ async syncDealsForBrand(brandId: string, deals: DealDocument[], brandInfo: { bra
     ]);
 
     const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
+
+    if (total === 0 && typeof filters.query === "string" && filters.query.trim().length > 0) {
+      console.log(`[DealRepository] No results for "${filters.query}". Attempting LLM fallback...`);
+      try {
+        const parsedFilters = await queryParserService.parseQuery(filters.query);
+
+        if (parsedFilters && Object.keys(parsedFilters).length > 0) {
+          console.log("[DealRepository] LLM extracted filters:", parsedFilters);
+          return this.getDeals({
+            ...filters,
+            ...parsedFilters,
+            query: undefined,
+          });
+        }
+      } catch (error) {
+        console.error("[DealRepository] LLM fallback failed:", error);
+        // Continue and return the empty result set instead of crashing
+      }
+    }
 
     return {
       items,
@@ -1049,4 +1101,6 @@ async syncDealsForBrand(brandId: string, deals: DealDocument[], brandInfo: { bra
   //     { $set: { isHot: true } }
   //   );
   // }
+
+
 }
