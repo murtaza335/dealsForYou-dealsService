@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import { dealsService } from "../services/deals.service.js";
 import type { BrandDealUpsertInput, UpdateBrandInput } from "../repositories/deal.repository.js";
+import { BrandRepository } from "../repositories/brand.repository.js";
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -307,6 +308,134 @@ export const deleteBrandDeal = async (req: Request, res: Response, next: NextFun
       success: true,
       message: "Deal deleted successfully.",
       data: deletedDeal,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get all brands with PENDING approval status
+ */
+export const getPendingBrands = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const brands = await BrandRepository.getPendingBrands();
+
+    return res.status(200).json({
+      success: true,
+      message: "Pending brands fetched successfully.",
+      data: brands,
+      count: brands.length,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get all brands with APPROVED approval status
+ */
+export const getApprovedBrands = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const brands = await BrandRepository.getApprovedBrands();
+
+    return res.status(200).json({
+      success: true,
+      message: "Approved brands fetched successfully.",
+      data: brands,
+      count: brands.length,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get all brands with REJECTED approval status
+ */
+export const getRejectedBrands = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const brands = await BrandRepository.getRejectedBrands();
+
+    return res.status(200).json({
+      success: true,
+      message: "Rejected brands fetched successfully.",
+      data: brands,
+      count: brands.length,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Update brand approval status from PENDING to APPROVED
+ */
+export const approveBrandApplication = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const brandId = typeof req.params.brandId === "string" ? req.params.brandId.trim() : "";
+
+    if (!brandId) {
+      return res.status(400).json({
+        success: false,
+        message: "brandId is required.",
+      });
+    }
+
+    const updatedBrand = await BrandRepository.approveBrand(brandId);
+
+    if (!updatedBrand) {
+      return res.status(404).json({
+        success: false,
+        message: "Brand not found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Brand approved successfully.",
+      data: updatedBrand,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Reject a brand application
+ */
+export const rejectBrandApplication = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const brandId = typeof req.params.brandId === "string" ? req.params.brandId.trim() : "";
+    const { rejectionReason } = req.body as { rejectionReason?: string };
+
+    if (!brandId) {
+      return res.status(400).json({
+        success: false,
+        message: "brandId is required.",
+      });
+    }
+
+    if (!rejectionReason || typeof rejectionReason !== "string" || rejectionReason.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "rejectionReason is required and must be a non-empty string.",
+      });
+    }
+
+    const updatedBrand = await BrandRepository.rejectBrand(brandId, rejectionReason.trim());
+
+    if (!updatedBrand) {
+      return res.status(404).json({
+        success: false,
+        message: "Brand not found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Brand rejected successfully.",
+      data: updatedBrand,
     });
   } catch (error) {
     next(error);
